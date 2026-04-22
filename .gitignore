@@ -1,4 +1,25 @@
-/build
-/dist
-/Code_Compilation_Dist.txt
-/images
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.spec
+
+# Gemini
+GEMINI.md
+
+# Logs and databases
+*.log
+db.sqlite3
+
+# Environments
+.venv/
+venv/
+.env
+
+# IDEs
+.vscode/
+.idea/
