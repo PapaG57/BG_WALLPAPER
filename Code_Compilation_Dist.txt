@@ -1,0 +1,1 @@
+python -m PyInstaller --noconsole --onefile --icon="E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\img\logo\bg-wallpaper.jpg" --name="BG_WALLPAPER" main.py
