@@ -83,6 +83,10 @@ def telecharger_bing():
             titre = image_data.get('title', 'Sans titre')
             copyright_info = image_data.get('copyright', 'Localisation inconnue')
             url_image = "https://www.bing.com" + image_data['url']
+            # Forcer la résolution UHD (4K) si disponible dans l'URL
+            url_image = url_image.replace("1920x1080", "3840x2160")
+            if "&uhd=1" not in url_image:
+                url_image += "&uhd=1"
             url_page = "https://bing.gifposter.com/fr" + image_data['url']
 
             # Si c'est l'image d'aujourd'hui, on met à jour les infos globales
@@ -116,6 +120,156 @@ def telecharger_bing():
     except Exception as e:
         print(f"Erreur téléchargement : {e}")
     return False
+
+def telecharger_image_specifique(date_voulue):
+    """
+    Télécharge une image spécifique parmi les 8 derniers jours si elle existe.
+    date_voulue: string au format "dd-mm-yyyy"
+    """
+    try:
+        api_url = "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=fr-FR"
+        response = requests.get(api_url, timeout=10).json()
+        
+        for image_data in response.get('images', []):
+            date_brute = image_data.get('startdate')
+            dt_image = datetime.datetime.strptime(date_brute, "%Y%m%d")
+            date_str = dt_image.strftime("%d-%m-%Y")
+            
+            if date_str == date_voulue:
+                dossier_dest = obtenir_dossier_du_mois(dt_image)
+                chemin_img = os.path.join(dossier_dest, f"bing_{date_str}.jpg")
+                chemin_txt = os.path.join(dossier_dest, f"bing_{date_str}.txt")
+                log_path = os.path.join(dossier_dest, "bg_wallpaper_log.txt")
+
+                titre = image_data.get('title', 'Sans titre')
+                copyright_info = image_data.get('copyright', 'Localisation inconnue')
+                url_image = "https://www.bing.com" + image_data['url']
+            # Forcer la résolution UHD (4K) si disponible dans l'URL
+            url_image = url_image.replace("1920x1080", "3840x2160")
+            if "&uhd=1" not in url_image:
+                url_image += "&uhd=1"
+                url_page = "https://bing.gifposter.com/fr" + image_data['url']
+
+                img_res = requests.get(url_image, timeout=15)
+                if img_res.status_code == 200:
+                    with open(chemin_img, 'wb') as f:
+                        f.write(img_res.content)
+                    
+                    with open(chemin_txt, 'w', encoding='utf-8') as f:
+                        f.write(f"TITRE : {titre}\nDATE : {date_str}\nLOCALISATION : {copyright_info}\nLIEN PAGE : {url_page}")
+
+                    with open(log_path, 'a', encoding='utf-8') as log:
+                        log.write(f"{datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S')} - Récupération manuelle {date_str} - Succès\n")
+                    
+                    ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
+                    return True, f"Image du {date_str} récupérée et appliquée !"
+        return False, "Image non trouvée dans les 8 derniers jours."
+    except Exception as e:
+        return False, f"Erreur : {str(e)}"
+
+def ouvrir_recuperation_manuelle(icon=None):
+    def create_download_window():
+        root = tk.Tk()
+        root.title("BG WALLPAPER - Récupérer une image")
+        centrer_fenetre(root, 400, 250)
+        root.attributes("-topmost", True)
+        root.resizable(False, False)
+
+        tk.Label(root, text="Choisir une image parmi les 8 derniers jours :", 
+                 font=("Arial", 10, "bold")).pack(pady=15)
+
+        # Récupérer les dates disponibles via l'API pour remplir le menu
+        dates_dispo = []
+        try:
+            api_url = "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=fr-FR"
+            res = requests.get(api_url, timeout=5).json()
+            for img in res.get('images', []):
+                dt = datetime.datetime.strptime(img['startdate'], "%Y%m%d")
+                dates_dispo.append(dt.strftime("%d-%m-%Y"))
+        except:
+            # Fallback : dates calculées (peut être imprécis si l'API est décalée)
+            for i in range(8):
+                d = datetime.datetime.now() - datetime.timedelta(days=i)
+                dates_dispo.append(d.strftime("%d-%m-%Y"))
+
+        variable = tk.StringVar(root)
+        variable.set(dates_dispo[0])
+        
+        opt_menu = tk.OptionMenu(root, variable, *dates_dispo)
+        opt_menu.config(width=20)
+        opt_menu.pack(pady=10)
+
+        label_status = tk.Label(root, text="", fg="blue")
+        label_status.pack(pady=5)
+
+        def lancer_telechargement():
+            date_sel = variable.get()
+            label_status.config(text="Téléchargement en cours...", fg="orange")
+            root.update()
+            
+            succes, msg = telecharger_image_specifique(date_sel)
+            if succes:
+                label_status.config(text=msg, fg="green")
+                
+                # Affichage de l'aperçu de l'image récupérée
+                try:
+                    # On retrouve le chemin de l'image qu'on vient de télécharger
+                    dt_obj = datetime.datetime.strptime(date_sel, "%d-%m-%Y")
+                    dossier = obtenir_dossier_du_mois(dt_obj)
+                    chemin_img = os.path.join(dossier, f"bing_{date_sel}.jpg")
+                    
+                    if os.path.exists(chemin_img):
+                        # Agrandir un peu la fenêtre pour l'aperçu et les infos
+                        centrer_fenetre(root, 450, 650)
+                        
+                        img_pil = Image.open(chemin_img)
+                        img_pil.thumbnail((400, 300))
+                        img_tk = ImageTk.PhotoImage(img_pil)
+                        
+                        # Création ou mise à jour du label d'aperçu
+                        if not hasattr(root, 'label_preview'):
+                            root.label_preview = tk.Label(root)
+                            root.label_preview.pack(pady=10)
+                        
+                        root.label_preview.config(image=img_tk)
+                        root.label_preview.image = img_tk
+
+                        # Récupération et affichage des infos (titre et lieu)
+                        infos_sup = ""
+                        chemin_txt = chemin_img.replace(".jpg", ".txt")
+                        if os.path.exists(chemin_txt):
+                            try:
+                                with open(chemin_txt, 'r', encoding='utf-8') as f:
+                                    content = f.read()
+                                    # Extraction simple pour l'affichage
+                                    for line in content.split("\n"):
+                                        if line.startswith("TITRE :"):
+                                            infos_sup += line + "\n"
+                                        if line.startswith("LOCALISATION :"):
+                                            infos_sup += line
+                            except:
+                                pass
+                        
+                        if not hasattr(root, 'label_infos_preview'):
+                            root.label_infos_preview = tk.Label(root, font=("Arial", 9), wraplength=400, justify=tk.CENTER)
+                            root.label_infos_preview.pack(pady=5)
+                        
+                        root.label_infos_preview.config(text=infos_sup)
+                        
+                        # Modifier le bouton pour qu'il serve à fermer
+                        btn_dl.config(text="Fermer", command=root.destroy, bg="#6c757d")
+                except Exception as e:
+                    print(f"Erreur aperçu : {e}")
+            else:
+                label_status.config(text=msg, fg="red")
+
+        btn_dl = tk.Button(root, text="Récupérer et Appliquer", command=lancer_telechargement, 
+                  bg="#28a745", fg="white", font=("Arial", 10, "bold"), padx=10, pady=5)
+        btn_dl.pack(pady=15)
+
+        root.mainloop()
+
+    threading.Thread(target=create_download_window, daemon=True).start()
 
 def lister_images_archivees():
     images = []
@@ -342,6 +496,7 @@ def lancer_app():
     menu = pystray.Menu(
         item('Voir l\'image du jour', afficher_infos_custom),
         item('Historique des images', afficher_historique),
+        item('Récupérer une image passée', ouvrir_recuperation_manuelle),
         item('Ouvrir le dossier des images', lambda icon: os.startfile(os.path.join(BASE_PATH, "images"))),
         pystray.Menu.SEPARATOR,
         item('En savoir plus (Bing.com)', ouvrir_page_bing),
