@@ -48,10 +48,11 @@ infos_actuelles = {
     "lien_page": "https://bing.gifposter.com/fr"
 }
 
-def obtenir_dossier_du_mois():
-    maintenant = datetime.datetime.now()
-    annee = maintenant.strftime("%Y")
-    nom_mois = maintenant.strftime("%m_%B").lower()
+def obtenir_dossier_du_mois(dt=None):
+    if dt is None:
+        dt = datetime.datetime.now()
+    annee = dt.strftime("%Y")
+    nom_mois = dt.strftime("%m_%B").lower()
     dossier = os.path.join(BASE_PATH, "images", annee, nom_mois)
     if not os.path.exists(dossier):
         os.makedirs(dossier, exist_ok=True)
@@ -60,40 +61,199 @@ def obtenir_dossier_du_mois():
 def telecharger_bing():
     global infos_actuelles
     try:
-        api_url = "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=fr-FR"
+        # On récupère les 8 dernières images (maximum autorisé par l'API officielle)
+        api_url = "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=fr-FR"
         response = requests.get(api_url, timeout=10).json()
-        data = response['images'][0]
-
-        maintenant = datetime.datetime.now()
-        date_str = maintenant.strftime("%d-%m-%Y")
-        dossier_dest = obtenir_dossier_du_mois()
         
-        chemin_img = os.path.join(dossier_dest, f"bing_{date_str}.jpg")
-        chemin_txt = os.path.join(dossier_dest, f"bing_{date_str}.txt")
-        log_path = os.path.join(dossier_dest, "bg_wallpaper_log.txt")
+        maintenant = datetime.datetime.now()
+        date_aujourdhui = maintenant.strftime("%d-%m-%Y")
+        succes_un_au_moins = False
 
-        infos_actuelles["titre"] = data.get('title', 'Sans titre')
-        infos_actuelles["localisation"] = data.get('copyright', 'Localisation inconnue')
-        infos_actuelles["date"] = maintenant.strftime("%d/%m/%Y à %H:%M")
-        infos_actuelles["lien_image"] = "https://www.bing.com" + data['url']
-        infos_actuelles["lien_page"] = "https://bing.gifposter.com/fr" + data['url']
-
-        if not os.path.exists(chemin_img):
-            img_res = requests.get(infos_actuelles["lien_image"])
-            with open(chemin_img, 'wb') as f:
-                f.write(img_res.content)
+        for image_data in response.get('images', []):
+            # Extraire la date de l'image (format YYYYMMDD)
+            date_brute = image_data.get('startdate')
+            dt_image = datetime.datetime.strptime(date_brute, "%Y%m%d")
+            date_str = dt_image.strftime("%d-%m-%Y")
             
-            with open(chemin_txt, 'w', encoding='utf-8') as f:
-                f.write(f"TITRE : {infos_actuelles['titre']}\nDATE : {infos_actuelles['date']}\nLOCALISATION : {infos_actuelles['localisation']}\nLIEN PAGE : {infos_actuelles['lien_page']}")
+            dossier_dest = obtenir_dossier_du_mois(dt_image)
+            chemin_img = os.path.join(dossier_dest, f"bing_{date_str}.jpg")
+            chemin_txt = os.path.join(dossier_dest, f"bing_{date_str}.txt")
+            log_path = os.path.join(dossier_dest, "bg_wallpaper_log.txt")
 
-            with open(log_path, 'a', encoding='utf-8') as log:
-                log.write(f"{datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S')} - MAJ auto - Succès\n")
+            titre = image_data.get('title', 'Sans titre')
+            copyright_info = image_data.get('copyright', 'Localisation inconnue')
+            url_image = "https://www.bing.com" + image_data['url']
+            url_page = "https://bing.gifposter.com/fr" + image_data['url']
 
-            ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
-            return True
+            # Si c'est l'image d'aujourd'hui, on met à jour les infos globales
+            if date_str == date_aujourdhui:
+                infos_actuelles["titre"] = titre
+                infos_actuelles["localisation"] = copyright_info
+                infos_actuelles["date"] = dt_image.strftime("%d/%m/%Y")
+                infos_actuelles["lien_image"] = url_image
+                infos_actuelles["lien_page"] = url_page
+
+            # Téléchargement si l'image n'existe pas
+            if not os.path.exists(chemin_img):
+                img_res = requests.get(url_image, timeout=15)
+                if img_res.status_code == 200:
+                    with open(chemin_img, 'wb') as f:
+                        f.write(img_res.content)
+                    
+                    with open(chemin_txt, 'w', encoding='utf-8') as f:
+                        f.write(f"TITRE : {titre}\nDATE : {date_str}\nLOCALISATION : {copyright_info}\nLIEN PAGE : {url_page}")
+
+                    with open(log_path, 'a', encoding='utf-8') as log:
+                        log.write(f"{datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S')} - Téléchargement {date_str} - Succès\n")
+                    
+                    # Appliquer comme fond d'écran si c'est celle d'aujourd'hui
+                    if date_str == date_aujourdhui:
+                        ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
+                    
+                    succes_un_au_moins = True
+
+        return succes_un_au_moins
     except Exception as e:
-        pass
+        print(f"Erreur téléchargement : {e}")
     return False
+
+def lister_images_archivees():
+    images = []
+    base_images = os.path.join(BASE_PATH, "images")
+    if not os.path.exists(base_images):
+        return images
+    
+    for root, dirs, files in os.walk(base_images):
+        for file in files:
+            if file.endswith(".jpg") and file.startswith("bing_"):
+                chemin_img = os.path.join(root, file)
+                date_str = file.replace("bing_", "").replace(".jpg", "")
+                
+                # Vérifier le format de la date pour le tri
+                try:
+                    dt_obj = datetime.datetime.strptime(date_str, "%d-%m-%Y")
+                except:
+                    continue
+
+                chemin_txt = chemin_img.replace(".jpg", ".txt")
+                titre = "Sans titre"
+                if os.path.exists(chemin_txt):
+                    try:
+                        with open(chemin_txt, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                if line.startswith("TITRE : "):
+                                    titre = line.replace("TITRE : ", "").strip()
+                                    break
+                    except:
+                        pass
+                
+                images.append({
+                    "date": date_str,
+                    "dt": dt_obj,
+                    "titre": titre,
+                    "chemin": chemin_img,
+                    "chemin_txt": chemin_txt
+                })
+    
+    # Trier par date décroissante
+    images.sort(key=lambda x: x["dt"], reverse=True)
+    return images
+
+def afficher_historique(icon):
+    def create_history_window():
+        root = tk.Tk()
+        root.title("BG WALLPAPER - Historique")
+        centrer_fenetre(root, 750, 550)
+        root.attributes("-topmost", True)
+        root.focus_force()
+
+        # Frame gauche : Liste des images
+        frame_liste = tk.Frame(root)
+        frame_liste.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        tk.Label(frame_liste, text="Archives disponibles :", font=("Arial", 10, "bold")).pack(anchor=tk.W)
+        
+        scrollbar = tk.Scrollbar(frame_liste)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = tk.Listbox(frame_liste, yscrollcommand=scrollbar.set, font=("Arial", 9))
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Frame droite : Aperçu et détails
+        frame_apercu = tk.Frame(root, width=380)
+        frame_apercu.pack(side=tk.RIGHT, fill=tk.BOTH, padx=10, pady=10)
+        
+        label_titre_img = tk.Label(frame_apercu, text="Sélectionnez une image", font=("Arial", 11, "bold"), wraplength=350)
+        label_titre_img.pack(pady=5)
+        
+        label_img_prev = tk.Label(frame_apercu)
+        label_img_prev.pack(pady=10)
+        
+        label_infos_det = tk.Label(frame_apercu, text="", wraplength=350, justify=tk.LEFT, font=("Arial", 9))
+        label_infos_det.pack(pady=5, fill=tk.X)
+
+        images_dispo = lister_images_archivees()
+        for img in images_dispo:
+            listbox.insert(tk.END, f"{img['date']} - {img['titre']}")
+
+        def on_select(event):
+            selection = event.widget.curselection()
+            if selection:
+                idx = selection[0]
+                img_data = images_dispo[idx]
+                
+                label_titre_img.config(text=img_data["titre"])
+                
+                try:
+                    img_pil = Image.open(img_data["chemin"])
+                    img_pil.thumbnail((350, 250))
+                    img_tk = ImageTk.PhotoImage(img_pil)
+                    label_img_prev.config(image=img_tk)
+                    label_img_prev.image = img_tk
+                except:
+                    label_img_prev.config(image="", text="Erreur de chargement")
+
+                # Récupération des détails
+                details = f"Date : {img_data['date']}\n"
+                if os.path.exists(img_data["chemin_txt"]):
+                    try:
+                        with open(img_data["chemin_txt"], 'r', encoding='utf-8') as f:
+                            for line in f:
+                                if "LOCALISATION :" in line:
+                                    details += f"Lieu : {line.replace('LOCALISATION :', '').strip()}\n"
+                                if "LIEN PAGE :" in line:
+                                    # On garde le lien pour un futur usage si besoin
+                                    pass
+                    except:
+                        pass
+                label_infos_det.config(text=details)
+
+        listbox.bind('<<ListboxSelect>>', on_select)
+
+        def appliquer_selection():
+            selection = listbox.curselection()
+            if selection:
+                img_data = images_dispo[selection[0]]
+                if os.path.exists(img_data["chemin"]):
+                    ctypes.windll.user32.SystemParametersInfoW(20, 0, img_data["chemin"], 3)
+
+        btn_apply = tk.Button(frame_apercu, text="Définir comme fond d'écran", 
+                               command=appliquer_selection, bg="#0078d7", fg="white", 
+                               font=("Arial", 10, "bold"), pady=8)
+        btn_apply.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+        
+        btn_open_dir = tk.Button(frame_apercu, text="Ouvrir le dossier des images", 
+                                  command=lambda: os.startfile(os.path.join(BASE_PATH, "images")))
+        btn_open_dir.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+
+        if images_dispo:
+            listbox.select_set(0)
+            listbox.event_generate("<<ListboxSelect>>")
+
+        root.mainloop()
+
+    threading.Thread(target=create_history_window, daemon=True).start()
 
 # --- INTERFACE GRAPHIQUE ---
 
@@ -181,9 +341,12 @@ def lancer_app():
     
     menu = pystray.Menu(
         item('Voir l\'image du jour', afficher_infos_custom),
-        item('En savoir plus (Bing.com)', ouvrir_page_bing),
+        item('Historique des images', afficher_historique),
+        item('Ouvrir le dossier des images', lambda icon: os.startfile(os.path.join(BASE_PATH, "images"))),
         pystray.Menu.SEPARATOR,
+        item('En savoir plus (Bing.com)', ouvrir_page_bing),
         item('Actualiser maintenant', lambda icon: telecharger_bing()),
+        pystray.Menu.SEPARATOR,
         item('Quitter BG WALLPAPER', quitter_app)
     )
 
