@@ -144,10 +144,12 @@ def telecharger_image_specifique(date_voulue):
                 titre = image_data.get('title', 'Sans titre')
                 copyright_info = image_data.get('copyright', 'Localisation inconnue')
                 url_image = "https://www.bing.com" + image_data['url']
-            # Forcer la résolution UHD (4K) si disponible dans l'URL
-            url_image = url_image.replace("1920x1080", "3840x2160")
-            if "&uhd=1" not in url_image:
-                url_image += "&uhd=1"
+                
+                # Forcer la résolution UHD (4K)
+                url_image = url_image.replace("1920x1080", "3840x2160")
+                if "&uhd=1" not in url_image:
+                    url_image += "&uhd=1"
+                
                 url_page = "https://bing.gifposter.com/fr" + image_data['url']
 
                 img_res = requests.get(url_image, timeout=15)
@@ -163,6 +165,7 @@ def telecharger_image_specifique(date_voulue):
                     
                     ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
                     return True, f"Image du {date_str} récupérée et appliquée !"
+        
         return False, "Image non trouvée dans les 8 derniers jours."
     except Exception as e:
         return False, f"Erreur : {str(e)}"
@@ -506,6 +509,10 @@ def lancer_app():
     )
 
     icon = pystray.Icon("BG_Wallpaper", image_logo, "BG WALLPAPER", menu)
+    
+    # Lancement initial pour remplir infos_actuelles
+    telecharger_bing()
+    
     threading.Thread(target=boucle_temporelle, args=(icon,), daemon=True).start()
     icon.run()
 
