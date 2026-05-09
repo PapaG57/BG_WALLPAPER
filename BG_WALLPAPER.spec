@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['E:\\DOCUMENTS\\SITES_FGDEV\\FG_Developpement\\Projets_Realises\\LOGICIELS_CONCUS\\BG_WALLPAPER\\img\\logo\\bg-wallpaper.jpg'],
+    icon=['E:\\DOCUMENTS\\SITES_FGDEV\\FG_Developpement\\Projets_Realises\\LOGICIELS_CONCUS\\BG_WALLPAPER\\img\\logo\\bg-wallpaper.ico'],
 )
