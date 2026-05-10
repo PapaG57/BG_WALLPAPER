@@ -1,0 +1,5 @@
+16:16:27 - --- Démarrage de l'application ---
+16:16:27 - Lancement telecharger_bing (forcer=False)
+16:16:28 - Téléchargement de l'image : Plonger, s’envoler et survivre
+16:16:29 - Téléchargement réussi
+16:16:29 - Application du fond d'écran : E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\images\2026\05_mai\bing_10-05-2026.jpg
