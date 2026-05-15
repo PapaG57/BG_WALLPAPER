@@ -1,7 +1,8 @@
 # ==============================================================================
 # LOGICIEL : BG WALLPAPER
 # CONCEPTION : FG DEVELOPPEMENT & GEMINI
-# DATE : 10 mai 2026
+# VERSION : 2.6
+# DATE : 15 mai 2026
 # (c) Tous droits réservés.
 # ==============================================================================
 
@@ -14,11 +15,17 @@ import threading
 import time
 import webbrowser
 import tkinter as tk
+import subprocess
+import winreg
 from PIL import Image, ImageTk
 import pystray
 from pystray import MenuItem as item
 
-# --- CONFIGURATION DES CHEMINS ---
+# --- CONFIGURATION ---
+VERSION = "2.6"
+ANNEE_CREATION = "2026"
+URL_SITE = "https://www.fgdeveloppement.com"
+
 if getattr(sys, 'frozen', False):
     BASE_PATH = os.path.dirname(sys.executable)
     if os.path.basename(BASE_PATH).lower() == "dist":
@@ -35,6 +42,32 @@ infos_actuelles = {
     "date": "Non définie",
     "chemin_local": ""
 }
+
+def gerer_demarrage_automatique():
+    """Ajoute l'application au démarrage de Windows via le registre."""
+    try:
+        if getattr(sys, 'frozen', False):
+            chemin = f'"{sys.executable}"'
+        else:
+            chemin = f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+        
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "BG_WALLPAPER", 0, winreg.REG_SZ, chemin)
+    except: pass
+
+def appliquer_fond_ecran(chemin_img):
+    """Applique le fond d'écran de manière précise sur le moniteur principal."""
+    if not chemin_img or not os.path.exists(chemin_img):
+        return
+    
+    ps_cmd = f"& {{ $w = New-Object -ComObject DesktopWallpaper; $m = $w.GetMonitorDevicePathAt(0); $w.SetWallpaper($m, '{chemin_img}') }}"
+    
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], 
+                       creationflags=0x08000000, capture_output=True)
+    except:
+        ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
 
 def obtenir_nom_mois_fr(num_mois):
     mois = ["janvier", "fevrier", "mars", "avril", "mai", "juin", 
@@ -67,7 +100,6 @@ def ajouter_log_trie(dossier, message):
         
         lignes.append(nouvelle_ligne)
         
-        # Tri chronologique (on se base sur les 19 premiers caractères : JJ-MM-AAAA HH:MM:SS)
         try:
             lignes.sort(key=lambda x: datetime.datetime.strptime(x[:19], "%d-%m-%Y %H:%M:%S"))
         except: pass
@@ -75,6 +107,16 @@ def ajouter_log_trie(dossier, message):
         with open(log_path, 'w', encoding='utf-8') as f:
             f.writelines(lignes)
     except: pass
+
+def attendre_internet(tentatives=10, delai=5):
+    """Attend que la connexion internet soit disponible."""
+    for _ in range(tentatives):
+        try:
+            requests.get("https://www.bing.com", timeout=3)
+            return True
+        except:
+            time.sleep(delai)
+    return False
 
 def telecharger_bing(forcer=False, icon=None):
     global infos_actuelles
@@ -91,7 +133,9 @@ def telecharger_bing(forcer=False, icon=None):
         chemin_img = os.path.abspath(os.path.join(dossier, f"bing_{date_str}.jpg"))
         chemin_txt = os.path.abspath(os.path.join(dossier, f"bing_{date_str}.txt"))
 
-        if not os.path.exists(chemin_img) or forcer:
+        image_existe = os.path.exists(chemin_img)
+
+        if not image_existe or forcer:
             url_base = "https://www.bing.com" + img_data['urlbase']
             url_4k = f"{url_base}_3840x2160.jpg&uhd=1"
             r = requests.get(url_4k, timeout=15)
@@ -103,15 +147,21 @@ def telecharger_bing(forcer=False, icon=None):
                 with open(chemin_txt, 'w', encoding='utf-8') as f:
                     f.write(f"TITRE : {titre}\nDATE : {date_str}\nLOCALISATION : {img_data.get('copyright')}")
                 ajouter_log_trie(dossier, "MAJ auto - Succès")
+                image_existe = True
+
+        # Mise à jour des infos globales AVANT l'application pour comparaison
+        deja_en_place = (infos_actuelles["chemin_local"] == chemin_img)
 
         infos_actuelles.update({
             "titre": titre, "localisation": img_data.get('copyright', 'Inconnu'),
             "date": date_str, "chemin_local": chemin_img
         })
 
-        if os.path.exists(chemin_img):
-            ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
-            if forcer and icon: icon.notify(f"Image appliquée : {titre}", "BG WALLPAPER")
+        if image_existe:
+            # On n'applique que si l'image n'est pas déjà celle en place, ou si on force
+            if not deja_en_place or forcer:
+                appliquer_fond_ecran(chemin_img)
+                if forcer and icon: icon.notify(f"Image appliquée : {titre}", "BG WALLPAPER")
         return True
     except: return False
 
@@ -138,7 +188,9 @@ def charger_image_specifique(img_data):
                 f.write(f"TITRE : {img_data.get('title')}\nDATE : {date_str}\nLOCALISATION : {img_data.get('copyright')}")
             
             ajouter_log_trie(dossier, "IMG Manquée - Succès")
-            ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
+            appliquer_fond_ecran(chemin_img)
+            # On met à jour infos_actuelles pour refléter le changement manuel
+            infos_actuelles.update({"titre": img_data.get('title'), "date": date_str, "chemin_local": chemin_img})
             return True, "Image chargée avec succès !"
         return False, "Erreur réseau."
     except: return False, "Erreur imprévue."
@@ -200,8 +252,9 @@ def afficher_historique(icon):
         def apply():
             sel = lb.curselection()
             if sel:
-                ctypes.windll.user32.SystemParametersInfoW(20, 0, imgs[sel[0]]["chemin"], 3)
-                infos_actuelles.update({"titre": imgs[sel[0]]["titre"], "date": imgs[sel[0]]["date"], "chemin_local": imgs[sel[0]]["chemin"]})
+                chemin = imgs[sel[0]]["chemin"]
+                appliquer_fond_ecran(chemin)
+                infos_actuelles.update({"titre": imgs[sel[0]]["titre"], "date": imgs[sel[0]]["date"], "chemin_local": chemin})
         tk.Button(root, text="Appliquer", command=apply, bg="#0078d7", fg="white", pady=8).pack(fill=tk.X, padx=10, pady=5)
         tk.Button(root, text="Fermer", command=root.destroy, bg="#6c757d", fg="white").pack(fill=tk.X, padx=10, pady=5)
         root.mainloop()
@@ -223,6 +276,22 @@ def afficher_infos_custom(icon):
         root.mainloop()
     threading.Thread(target=create_window, daemon=True).start()
 
+def afficher_a_propos(icon):
+    def create_window():
+        root = tk.Tk(); root.title("À propos"); centrer_fenetre(root, 300, 220); root.attributes("-topmost", True)
+        tk.Label(root, text="BG WALLPAPER", font=("Arial", 12, "bold")).pack(pady=(20, 5))
+        
+        lbl_link = tk.Label(root, text="By FG Developpement", font=("Arial", 10, "underline"), fg="blue", cursor="hand2")
+        lbl_link.pack(pady=2)
+        lbl_link.bind("<Button-1>", lambda e: webbrowser.open(URL_SITE))
+        
+        tk.Label(root, text=f"(c) {ANNEE_CREATION}", font=("Arial", 9)).pack(pady=2)
+        tk.Label(root, text=f"Version : {VERSION}", font=("Arial", 10, "bold")).pack(pady=5)
+        tk.Label(root, text="GEMINI & FG DÉVELOPPEMENT", font=("Arial", 7), fg="gray").pack(pady=5)
+        tk.Button(root, text="Fermer", command=root.destroy, width=10).pack(pady=15)
+        root.mainloop()
+    threading.Thread(target=create_window, daemon=True).start()
+
 def centrer_fenetre(f, l, h):
     sw = f.winfo_screenwidth(); sh = f.winfo_screenheight()
     f.geometry(f"{l}x{h}+{(sw-l)//2}+{(sh-h)//2}")
@@ -230,10 +299,27 @@ def centrer_fenetre(f, l, h):
 def quitter_app(icon): icon.stop(); os._exit(0)
 
 def boucle_temporelle(icon):
+    derniere_verif = time.time()
+    dernier_jour = datetime.date.today()
     while True:
-        time.sleep(3600); telecharger_bing(icon=icon)
+        time.sleep(10)
+        maintenant = time.time()
+        jour_actuel = datetime.date.today()
+        
+        if (maintenant - derniere_verif) > 30:
+            time.sleep(5) 
+            if attendre_internet(tentatives=5, delai=2):
+                telecharger_bing(icon=icon)
+            
+        elif jour_actuel != dernier_jour:
+            if attendre_internet(tentatives=5, delai=2):
+                telecharger_bing(icon=icon)
+                dernier_jour = jour_actuel
+            
+        derniere_verif = maintenant
 
 def lancer_app():
+    gerer_demarrage_automatique()
     try: logo = Image.open(LOGO_PATH)
     except: logo = Image.new('RGB', (64, 64), color='blue')
     menu = pystray.Menu(
@@ -243,11 +329,17 @@ def lancer_app():
         item('Ouvrir le dossier images', lambda i: os.startfile(os.path.join(BASE_PATH, "images"))),
         pystray.Menu.SEPARATOR,
         item('Actualiser maintenant', lambda i: telecharger_bing(forcer=True, icon=i)),
+        item('À propos', afficher_a_propos),
         item('Quitter', quitter_app)
     )
     icon = pystray.Icon("BG_Wallpaper", logo, "BG WALLPAPER", menu)
-    telecharger_bing()
-    threading.Thread(target=boucle_temporelle, args=(icon,), daemon=True).start()
+    
+    def initialisation():
+        if attendre_internet(tentatives=12, delai=5):
+            telecharger_bing()
+        threading.Thread(target=boucle_temporelle, args=(icon,), daemon=True).start()
+    
+    threading.Thread(target=initialisation, daemon=True).start()
     icon.run()
 
 if __name__ == "__main__": lancer_app()
