@@ -3,3 +3,51 @@
 16:16:28 - Téléchargement de l'image : Plonger, s’envoler et survivre
 16:16:29 - Téléchargement réussi
 16:16:29 - Application du fond d'écran : E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\images\2026\05_mai\bing_10-05-2026.jpg
+[16-05-2026 10:39:19] --- DÉMARRAGE BG WALLPAPER v2.7 ---
+[16-05-2026 10:39:19] Enregistrement démarrage auto : "E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\dist\BG_WALLPAPER.exe"
+[16-05-2026 10:39:19] Démarrage auto configuré avec succès.
+[16-05-2026 10:39:19] Initialisation en arrière-plan...
+[16-05-2026 10:39:19] Lancement de l'icône de la barre des tâches.
+[16-05-2026 10:39:19] Attente internet (max 120s)...
+[16-05-2026 10:39:20] Internet OK après 1 tentative(s).
+[16-05-2026 10:39:20] Vérification Bing (forcer=False)
+[16-05-2026 10:39:20] Tentative d'application : E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\images\2026\05_mai\bing_16-05-2026.jpg
+[16-05-2026 10:39:21] Méthode 1 (PowerShell COM) : Succès
+[16-05-2026 10:39:21] Notification envoyée : Image appliquée : Ô bouleau !
+[16-05-2026 10:39:21] Boucle temporelle démarrée.
+[16-05-2026 10:39:29] Vérification Bing (forcer=True)
+[16-05-2026 10:39:29] Téléchargement de l'image : Ô bouleau !
+[16-05-2026 10:39:31] Image téléchargée et enregistrée.
+[16-05-2026 10:39:31] Tentative d'application : E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\images\2026\05_mai\bing_16-05-2026.jpg
+[16-05-2026 10:39:31] Méthode 1 (PowerShell COM) : Succès
+[16-05-2026 10:39:31] Notification envoyée : Image appliquée : Ô bouleau !
+[16-05-2026 10:41:08] Quitter l'application.
+[16-05-2026 10:46:03] --- DÉMARRAGE v2.8 ---
+[16-05-2026 10:46:03] Démarrage auto OK : "E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\dist\BG_WALLPAPER.exe"
+[16-05-2026 10:46:03] Initialisation...
+[16-05-2026 10:46:03] Vérification connexion internet...
+[16-05-2026 10:46:04] Connexion établie (1).
+[16-05-2026 10:46:04] Vérification Bing (idx=0, force=False)
+[16-05-2026 10:46:04] Tentative d'application : E:\DOCUMENTS\SITES_FGDEV\FG_Developpement\Projets_Realises\LOGICIELS_CONCUS\BG_WALLPAPER\images\2026\05_mai\bing_16-05-2026.jpg
+[16-05-2026 10:46:04] Validation image : OK
+[16-05-2026 10:46:05] Méthode 1 : Échec (1) - New-Object : La r‚cup‚ration de la fabrique de classes COM pour le composant avec le CLSID 
+{00000000-0000-0000-0000-000000000000} a ‚chou‚ en raison de l'erreur suivante: 80040154 Classe non enregistr‚e 
+(Exception de HRESULT : 0x80040154 (REGDB_E_CLASSNOTREG)).
+Au caractŠre Ligne:1 : 6
++ $w = New-Object -ComObject DesktopWallpaper; $w.SetWallpaper($null, " ...
++      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ResourceUnavailable: (:) [New-Object], COMException
+    + FullyQualifiedErrorId : NoCOMClassIdentified,Microsoft.PowerShell.Commands.NewObjectCommand
+ 
+Impossible d'appeler une m‚thode dans une expression Null.
+Au caractŠre Ligne:1 : 46
++ ... pWallpaper; $w.SetWallpaper($null, "E:\DOCUMENTS\SITES_FGDEV\FG_Devel ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation : (:) [], RuntimeException
+    + FullyQualifiedErrorId : InvokeMethodOnNull
+ 
+
+[16-05-2026 10:46:05] Méthode 2 (SystemParametersInfoW) : Succès
+[16-05-2026 10:46:06] Méthode 3 (Registry) : Tentée
+[16-05-2026 10:46:06] Notification envoyée.
+[16-05-2026 10:46:06] Boucle de surveillance active.

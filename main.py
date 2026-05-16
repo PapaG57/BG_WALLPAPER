@@ -1,8 +1,8 @@
 # ==============================================================================
 # LOGICIEL : BG WALLPAPER
 # CONCEPTION : FG DEVELOPPEMENT & GEMINI
-# VERSION : 2.6
-# DATE : 15 mai 2026
+# VERSION : 2.8
+# DATE : 16 mai 2026
 # (c) Tous droits réservés.
 # ==============================================================================
 
@@ -15,14 +15,16 @@ import threading
 import time
 import webbrowser
 import tkinter as tk
+from tkinter import messagebox
 import subprocess
 import winreg
+import socket
 from PIL import Image, ImageTk
 import pystray
 from pystray import MenuItem as item
 
 # --- CONFIGURATION ---
-VERSION = "2.6"
+VERSION = "2.8"
 ANNEE_CREATION = "2026"
 URL_SITE = "https://www.fgdeveloppement.com"
 
@@ -34,6 +36,7 @@ else:
     BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 LOGO_PATH = os.path.join(BASE_PATH, "img", "logo", "bg-wallpaper.jpg")
+DEBUG_LOG_PATH = os.path.join(BASE_PATH, "debug_wallpaper.txt")
 
 # Infos globales
 infos_actuelles = {
@@ -43,8 +46,26 @@ infos_actuelles = {
     "chemin_local": ""
 }
 
+def log_debug(message):
+    """Enregistre un message dans le fichier de debug avec horodatage."""
+    try:
+        maintenant = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{maintenant}] {message}\n")
+    except: pass
+
+def verifier_instance_unique():
+    """Empêche de lancer plusieurs instances."""
+    try:
+        global _lock_socket
+        _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _lock_socket.bind(("127.0.0.1", 65432))
+        return True
+    except socket.error:
+        return False
+
 def gerer_demarrage_automatique():
-    """Ajoute l'application au démarrage de Windows via le registre."""
+    """Force l'inscription au démarrage de Windows."""
     try:
         if getattr(sys, 'frozen', False):
             chemin = f'"{sys.executable}"'
@@ -54,20 +75,65 @@ def gerer_demarrage_automatique():
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
             winreg.SetValueEx(key, "BG_WALLPAPER", 0, winreg.REG_SZ, chemin)
-    except: pass
+        log_debug(f"Démarrage auto OK : {chemin}")
+    except Exception as e:
+        log_debug(f"Erreur Démarrage auto : {str(e)}")
 
 def appliquer_fond_ecran(chemin_img):
-    """Applique le fond d'écran de manière précise sur le moniteur principal."""
+    """Applique le fond d'écran avec une robustesse maximale."""
     if not chemin_img or not os.path.exists(chemin_img):
-        return
+        log_debug(f"Erreur : Image introuvable ({chemin_img})")
+        return False
     
-    ps_cmd = f"& {{ $w = New-Object -ComObject DesktopWallpaper; $m = $w.GetMonitorDevicePathAt(0); $w.SetWallpaper($m, '{chemin_img}') }}"
-    
+    chemin_abs = os.path.abspath(chemin_img)
+    log_debug(f"Tentative d'application : {chemin_abs}")
+
+    # Validation de l'image avant application
     try:
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], 
-                       creationflags=0x08000000, capture_output=True)
-    except:
-        ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_img, 3)
+        with Image.open(chemin_abs) as img:
+            img.verify()
+        log_debug("Validation image : OK")
+    except Exception as e:
+        log_debug(f"Validation image : ÉCHEC - {str(e)}")
+        return False
+
+    succes = False
+
+    # Méthode 1 : PowerShell COM - Tous les écrans ($null)
+    # On utilise des guillemets doubles et l'échappement pour les chemins complexes
+    ps_cmd_1 = f'$w = New-Object -ComObject DesktopWallpaper; $w.SetWallpaper($null, \"{chemin_abs}\")'
+    try:
+        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd_1], 
+                           creationflags=0x08000000, capture_output=True, text=True, timeout=15)
+        if res.returncode == 0:
+            log_debug("Méthode 1 (COM All Monitors) : Succès")
+            succes = True
+        else:
+            log_debug(f"Méthode 1 : Échec ({res.returncode}) - {res.stderr}")
+    except Exception as e:
+        log_debug(f"Méthode 1 : Exception - {str(e)}")
+
+    # Méthode 2 : API Windows Standard (Système)
+    try:
+        # SPI_SETDESKWALLPAPER = 20
+        # SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE = 3
+        res_spi = ctypes.windll.user32.SystemParametersInfoW(20, 0, chemin_abs, 3)
+        if res_spi:
+            log_debug("Méthode 2 (SystemParametersInfoW) : Succès")
+            succes = True
+        else:
+            log_debug("Méthode 2 : Échec (Retour 0)")
+    except Exception as e:
+        log_debug(f"Méthode 2 : Exception - {str(e)}")
+
+    # Méthode 3 : Registre + Refresh forcé
+    try:
+        ps_cmd_3 = f'Set-ItemProperty -Path "HKCU:\\Control Panel\\Desktop" -Name Wallpaper -Value \"{chemin_abs}\"; rundll32.exe user32.dll,UpdatePerUserSystemParameters'
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd_3], creationflags=0x08000000)
+        log_debug("Méthode 3 (Registry) : Tentée")
+    except: pass
+
+    return succes
 
 def obtenir_nom_mois_fr(num_mois):
     mois = ["janvier", "fevrier", "mars", "avril", "mai", "juin", 
@@ -84,44 +150,37 @@ def obtenir_dossier_du_mois(dt=None):
     return dossier
 
 def ajuster_date_bing(date_brute):
-    dt = datetime.datetime.strptime(date_brute, "%Y%m%d")
-    return dt + datetime.timedelta(days=1)
+    try:
+        dt = datetime.datetime.strptime(date_brute, "%Y%m%d")
+        return dt + datetime.timedelta(days=1)
+    except: return datetime.datetime.now()
 
 def ajouter_log_trie(dossier, message):
     try:
         log_path = os.path.join(dossier, "bg_wallpaper_log.txt")
         maintenant = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-        nouvelle_ligne = f"{maintenant} - {message}\n"
-        
-        lignes = []
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8') as f:
-                lignes = f.readlines()
-        
-        lignes.append(nouvelle_ligne)
-        
-        try:
-            lignes.sort(key=lambda x: datetime.datetime.strptime(x[:19], "%d-%m-%Y %H:%M:%S"))
-        except: pass
-            
-        with open(log_path, 'w', encoding='utf-8') as f:
-            f.writelines(lignes)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{maintenant} - {message}\n")
     except: pass
 
-def attendre_internet(tentatives=10, delai=5):
-    """Attend que la connexion internet soit disponible."""
-    for _ in range(tentatives):
+def attendre_internet(tentatives=30, delai=5):
+    """Attend que la connexion internet soit disponible (max 150s)."""
+    log_debug("Vérification connexion internet...")
+    for i in range(tentatives):
         try:
-            requests.get("https://www.bing.com", timeout=3)
+            requests.get("https://www.bing.com", timeout=5)
+            log_debug(f"Connexion établie ({i+1}).")
             return True
         except:
             time.sleep(delai)
+    log_debug("Échec de connexion.")
     return False
 
 def telecharger_bing(forcer=False, icon=None):
     global infos_actuelles
     try:
-        api_url = f"https://www.bing.com/HPImageArchive.aspx?format=js&idx=-1&n=1&mkt=fr-FR&ts={int(time.time())}"
+        log_debug(f"Vérification Bing (idx=0, force={forcer})")
+        api_url = f"https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=fr-FR&ts={int(time.time())}"
         res = requests.get(api_url, timeout=10).json()
         img_data = res['images'][0]
         
@@ -133,23 +192,29 @@ def telecharger_bing(forcer=False, icon=None):
         chemin_img = os.path.abspath(os.path.join(dossier, f"bing_{date_str}.jpg"))
         chemin_txt = os.path.abspath(os.path.join(dossier, f"bing_{date_str}.txt"))
 
-        image_existe = os.path.exists(chemin_img)
-
-        if not image_existe or forcer:
+        # Si l'image n'existe pas ou qu'on force l'actualisation
+        if not os.path.exists(chemin_img) or forcer:
+            log_debug(f"Téléchargement : {titre}")
             url_base = "https://www.bing.com" + img_data['urlbase']
             url_4k = f"{url_base}_3840x2160.jpg&uhd=1"
-            r = requests.get(url_4k, timeout=15)
-            if r.status_code != 200:
+            try:
+                r = requests.get(url_4k, timeout=15)
+                if r.status_code != 200:
+                    r = requests.get(f"https://www.bing.com{img_data['url']}", timeout=15)
+            except:
                 r = requests.get(f"https://www.bing.com{img_data['url']}", timeout=15)
             
             if r.status_code == 200:
                 with open(chemin_img, 'wb') as f: f.write(r.content)
                 with open(chemin_txt, 'w', encoding='utf-8') as f:
                     f.write(f"TITRE : {titre}\nDATE : {date_str}\nLOCALISATION : {img_data.get('copyright')}")
-                ajouter_log_trie(dossier, "MAJ auto - Succès")
-                image_existe = True
+                ajouter_log_trie(dossier, f"MAJ {'Force' if forcer else 'Auto'} - Succès")
+                log_debug("Téléchargement réussi.")
+            else:
+                log_debug(f"Erreur HTTP : {r.status_code}")
+                return False
 
-        # Mise à jour des infos globales AVANT l'application pour comparaison
+        # Vérifier si l'image est déjà celle en place (en mémoire)
         deja_en_place = (infos_actuelles["chemin_local"] == chemin_img)
 
         infos_actuelles.update({
@@ -157,13 +222,28 @@ def telecharger_bing(forcer=False, icon=None):
             "date": date_str, "chemin_local": chemin_img
         })
 
-        if image_existe:
-            # On n'applique que si l'image n'est pas déjà celle en place, ou si on force
+        if os.path.exists(chemin_img):
             if not deja_en_place or forcer:
-                appliquer_fond_ecran(chemin_img)
-                if forcer and icon: icon.notify(f"Image appliquée : {titre}", "BG WALLPAPER")
+                if appliquer_fond_ecran(chemin_img):
+                    if icon:
+                        icon.notify(f"Image appliquée : {titre}", "BG WALLPAPER")
+                        log_debug("Notification envoyée.")
+                else:
+                    log_debug("Toutes les méthodes d'application ont échoué.")
+            else:
+                log_debug("Image déjà active, application ignorée.")
         return True
-    except: return False
+    except Exception as e:
+        log_debug(f"Erreur telecharger_bing : {str(e)}")
+        return False
+
+def ouvrir_dossier_images(icon=None):
+    try: os.startfile(os.path.join(BASE_PATH, "images"))
+    except: pass
+
+def voir_log_debug(icon=None):
+    try: os.startfile(DEBUG_LOG_PATH)
+    except: pass
 
 def charger_image_specifique(img_data):
     try:
@@ -173,33 +253,30 @@ def charger_image_specifique(img_data):
         chemin_img = os.path.abspath(os.path.join(dossier, f"bing_{date_str}.jpg"))
         
         if os.path.exists(chemin_img):
-            return False, "Cette image a déjà été chargée, veuillez charger une autre image."
+            return False, "Cette image existe déjà."
 
         url_base = "https://www.bing.com" + img_data['urlbase']
-        url_4k = f"{url_base}_3840x2160.jpg&uhd=1"
-        r = requests.get(url_4k, timeout=15)
+        r = requests.get(f"{url_base}_3840x2160.jpg&uhd=1", timeout=15)
         if r.status_code != 200:
             r = requests.get(f"https://www.bing.com{img_data['url']}", timeout=15)
         
         if r.status_code == 200:
             with open(chemin_img, 'wb') as f: f.write(r.content)
-            txt_path = chemin_img.replace(".jpg", ".txt")
-            with open(txt_path, 'w', encoding='utf-8') as f:
+            with open(chemin_img.replace(".jpg", ".txt"), 'w', encoding='utf-8') as f:
                 f.write(f"TITRE : {img_data.get('title')}\nDATE : {date_str}\nLOCALISATION : {img_data.get('copyright')}")
             
-            ajouter_log_trie(dossier, "IMG Manquée - Succès")
             appliquer_fond_ecran(chemin_img)
-            # On met à jour infos_actuelles pour refléter le changement manuel
             infos_actuelles.update({"titre": img_data.get('title'), "date": date_str, "chemin_local": chemin_img})
-            return True, "Image chargée avec succès !"
+            return True, "Image chargée !"
         return False, "Erreur réseau."
-    except: return False, "Erreur imprévue."
+    except Exception as e:
+        log_debug(f"Erreur charger_image_specifique : {str(e)}")
+        return False, "Erreur."
 
 def ouvrir_charger_image(icon=None):
     def create_window():
-        root = tk.Tk(); root.title("BG WALLPAPER - Charger une image manquée"); centrer_fenetre(root, 500, 400)
-        root.attributes("-topmost", True)
-        tk.Label(root, text="Choisir une image parmi les 16 derniers jours :", font=("Arial", 10, "bold")).pack(pady=20)
+        root = tk.Tk(); root.title("Charger une image manquée"); centrer_fenetre(root, 500, 400); root.attributes("-topmost", True)
+        tk.Label(root, text="Sélectionner une image des 16 derniers jours :", font=("Arial", 10, "bold")).pack(pady=20)
         options = []; map_data = {}
         try:
             for idx in [0, 8]:
@@ -209,60 +286,44 @@ def ouvrir_charger_image(icon=None):
                     lib = f"{d_str} : {img.get('title', 'Sans titre')}"
                     if lib not in options: options.append(lib); map_data[lib] = img
         except: pass
-        if not options: return
+        if not options: 
+            tk.Label(root, text="Erreur de chargement des données Bing.", fg="red").pack()
+            return
         var = tk.StringVar(root); var.set(options[0]); tk.OptionMenu(root, var, *options).pack(pady=10, padx=20, fill=tk.X)
         def action():
             success, msg = charger_image_specifique(map_data[var.get()])
-            res_win = tk.Toplevel(root); res_win.title("Résultat"); centrer_fenetre(res_win, 400, 180); res_win.attributes("-topmost", True)
-            color = "#28a745" if success else "#dc3545"
-            tk.Label(res_win, text=msg, font=("Arial", 10), wraplength=350, fg=color).pack(pady=25)
-            tk.Button(res_win, text="Fermer", command=lambda: [res_win.destroy(), root.destroy() if success else None], width=15).pack()
-        tk.Button(root, text="Charger l'image", command=action, bg="#0078d7", fg="white", font=("Arial", 10, "bold"), pady=8).pack(pady=20, padx=50, fill=tk.X)
-        tk.Button(root, text="Annuler et Fermer", command=root.destroy, bg="#6c757d", fg="white").pack(pady=10)
+            messagebox.showinfo("Résultat", msg)
+            if success: root.destroy()
+        tk.Button(root, text="Appliquer", command=action, bg="#0078d7", fg="white", font=("Arial", 10, "bold")).pack(pady=20)
         root.mainloop()
     threading.Thread(target=create_window, daemon=True).start()
 
-def lister_images_archivees():
-    images = []
-    base_images = os.path.join(BASE_PATH, "images")
-    if not os.path.exists(base_images): return images
-    for root, dirs, files in os.walk(base_images):
-        for file in files:
-            if file.endswith(".jpg") and file.startswith("bing_"):
-                date_str = file.replace("bing_", "").replace(".jpg", "")
-                try:
-                    dt = datetime.datetime.strptime(date_str, "%d-%m-%Y")
-                    titre = "Sans titre"
-                    txt_path = os.path.join(root, file.replace(".jpg", ".txt"))
-                    if os.path.exists(txt_path):
-                        with open(txt_path, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                if "TITRE :" in line: titre = line.replace("TITRE :", "").strip(); break
-                    images.append({"date": date_str, "dt": dt, "titre": titre, "chemin": os.path.abspath(os.path.join(root, file))})
-                except: continue
-    images.sort(key=lambda x: x["dt"], reverse=True)
-    return images
-
 def afficher_historique(icon):
     def create_window():
-        root = tk.Tk(); root.title("BG WALLPAPER - Historique"); centrer_fenetre(root, 600, 480)
+        root = tk.Tk(); root.title("Historique"); centrer_fenetre(root, 600, 480)
         lb = tk.Listbox(root, font=("Arial", 9)); lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        imgs = lister_images_archivees()
-        for i in imgs: lb.insert(tk.END, f"{i['date']} - {i['titre']}")
+        imgs = []
+        base = os.path.join(BASE_PATH, "images")
+        for r, d, files in os.walk(base):
+            for f in files:
+                if f.startswith("bing_") and f.endswith(".jpg"):
+                    d_str = f.replace("bing_", "").replace(".jpg", "")
+                    try:
+                        dt = datetime.datetime.strptime(d_str, "%d-%m-%Y")
+                        imgs.append({"date": d_str, "dt": dt, "chemin": os.path.abspath(os.path.join(r, f))})
+                    except: continue
+        imgs.sort(key=lambda x: x["dt"], reverse=True)
+        for i in imgs: lb.insert(tk.END, f"{i['date']} - {os.path.basename(i['chemin'])}")
         def apply():
-            sel = lb.curselection()
-            if sel:
-                chemin = imgs[sel[0]]["chemin"]
-                appliquer_fond_ecran(chemin)
-                infos_actuelles.update({"titre": imgs[sel[0]]["titre"], "date": imgs[sel[0]]["date"], "chemin_local": chemin})
-        tk.Button(root, text="Appliquer", command=apply, bg="#0078d7", fg="white", pady=8).pack(fill=tk.X, padx=10, pady=5)
-        tk.Button(root, text="Fermer", command=root.destroy, bg="#6c757d", fg="white").pack(fill=tk.X, padx=10, pady=5)
+            s = lb.curselection()
+            if s: appliquer_fond_ecran(imgs[s[0]]["chemin"])
+        tk.Button(root, text="Appliquer", command=apply).pack(fill=tk.X, padx=10)
         root.mainloop()
     threading.Thread(target=create_window, daemon=True).start()
 
 def afficher_infos_custom(icon):
     def create_window():
-        root = tk.Tk(); root.title("BG WALLPAPER - Infos"); centrer_fenetre(root, 450, 580); root.attributes("-topmost", True)
+        root = tk.Tk(); root.title("Infos Wallpaper"); centrer_fenetre(root, 450, 580); root.attributes("-topmost", True)
         path = infos_actuelles["chemin_local"]
         if path and os.path.exists(path):
             try:
@@ -271,24 +332,20 @@ def afficher_infos_custom(icon):
             except: pass
         tk.Label(root, text=infos_actuelles["titre"], font=("Arial", 11, "bold"), wraplength=400).pack(pady=5)
         tk.Label(root, text=infos_actuelles["localisation"], font=("Arial", 9), wraplength=400).pack(pady=5)
-        tk.Label(root, text=f"Fichier : {infos_actuelles['date']}", fg="gray").pack(pady=5)
-        tk.Button(root, text="Fermer", command=root.destroy, width=15).pack(pady=20)
+        tk.Label(root, text=f"Date : {infos_actuelles['date']}", fg="gray").pack(pady=5)
+        tk.Button(root, text="Fermer", command=root.destroy).pack(pady=20)
         root.mainloop()
     threading.Thread(target=create_window, daemon=True).start()
 
 def afficher_a_propos(icon):
     def create_window():
         root = tk.Tk(); root.title("À propos"); centrer_fenetre(root, 300, 220); root.attributes("-topmost", True)
-        tk.Label(root, text="BG WALLPAPER", font=("Arial", 12, "bold")).pack(pady=(20, 5))
-        
-        lbl_link = tk.Label(root, text="By FG Developpement", font=("Arial", 10, "underline"), fg="blue", cursor="hand2")
-        lbl_link.pack(pady=2)
-        lbl_link.bind("<Button-1>", lambda e: webbrowser.open(URL_SITE))
-        
-        tk.Label(root, text=f"(c) {ANNEE_CREATION}", font=("Arial", 9)).pack(pady=2)
-        tk.Label(root, text=f"Version : {VERSION}", font=("Arial", 10, "bold")).pack(pady=5)
-        tk.Label(root, text="GEMINI & FG DÉVELOPPEMENT", font=("Arial", 7), fg="gray").pack(pady=5)
-        tk.Button(root, text="Fermer", command=root.destroy, width=10).pack(pady=15)
+        tk.Label(root, text="BG WALLPAPER", font=("Arial", 12, "bold")).pack(pady=20)
+        tk.Label(root, text=f"Version : {VERSION}", font=("Arial", 10, "bold")).pack()
+        lbl = tk.Label(root, text="By FG Developpement", fg="blue", cursor="hand2", font=("Arial", 9, "underline"))
+        lbl.pack(pady=5); lbl.bind("<Button-1>", lambda e: webbrowser.open(URL_SITE))
+        tk.Label(root, text=f"(c) {ANNEE_CREATION}", font=("Arial", 8)).pack(pady=10)
+        tk.Button(root, text="Fermer", command=root.destroy).pack()
         root.mainloop()
     threading.Thread(target=create_window, daemon=True).start()
 
@@ -296,50 +353,76 @@ def centrer_fenetre(f, l, h):
     sw = f.winfo_screenwidth(); sh = f.winfo_screenheight()
     f.geometry(f"{l}x{h}+{(sw-l)//2}+{(sh-h)//2}")
 
-def quitter_app(icon): icon.stop(); os._exit(0)
+def quitter_app(icon): 
+    log_debug("Quitter.")
+    icon.stop(); os._exit(0)
 
 def boucle_temporelle(icon):
     derniere_verif = time.time()
     dernier_jour = datetime.date.today()
+    log_debug("Boucle de surveillance active.")
     while True:
-        time.sleep(10)
-        maintenant = time.time()
-        jour_actuel = datetime.date.today()
-        
-        if (maintenant - derniere_verif) > 30:
-            time.sleep(5) 
-            if attendre_internet(tentatives=5, delai=2):
-                telecharger_bing(icon=icon)
+        try:
+            time.sleep(60) # Vérification toutes les minutes
+            maintenant = time.time()
+            jour_actuel = datetime.date.today()
             
-        elif jour_actuel != dernier_jour:
-            if attendre_internet(tentatives=5, delai=2):
-                telecharger_bing(icon=icon)
-                dernier_jour = jour_actuel
-            
-        derniere_verif = maintenant
+            # Sortie de veille ou changement de jour
+            if (maintenant - derniere_verif) > 150 or jour_actuel != dernier_jour:
+                log_debug(f"Réveil ou Nouveau jour ({jour_actuel}).")
+                if attendre_internet(tentatives=10, delai=10):
+                    telecharger_bing(icon=icon)
+                    dernier_jour = jour_actuel
+                derniere_verif = maintenant
+            else:
+                # Petite mise à jour toutes les 6 heures pour être sûr
+                if (maintenant - derniere_verif) > 21600:
+                    log_debug("Vérification périodique (6h).")
+                    if attendre_internet(tentatives=5, delai=5):
+                        telecharger_bing(icon=icon)
+                    derniere_verif = maintenant
+        except Exception as e:
+            log_debug(f"Erreur Boucle : {str(e)}")
+            time.sleep(60)
 
 def lancer_app():
+    if not verifier_instance_unique(): sys.exit(0)
+
+    log_debug(f"--- DÉMARRAGE v{VERSION} ---")
     gerer_demarrage_automatique()
+    
     try: logo = Image.open(LOGO_PATH)
     except: logo = Image.new('RGB', (64, 64), color='blue')
+    
     menu = pystray.Menu(
         item('Voir l\'image du jour', afficher_infos_custom),
         item('Historique des archives', afficher_historique),
         item('Charger une image manquée', ouvrir_charger_image),
-        item('Ouvrir le dossier images', lambda i: os.startfile(os.path.join(BASE_PATH, "images"))),
+        item('Ouvrir le dossier images', ouvrir_dossier_images),
+        item('Voir le journal technique (Log)', voir_log_debug),
         pystray.Menu.SEPARATOR,
         item('Actualiser maintenant', lambda i: telecharger_bing(forcer=True, icon=i)),
         item('À propos', afficher_a_propos),
         item('Quitter', quitter_app)
     )
+    
     icon = pystray.Icon("BG_Wallpaper", logo, "BG WALLPAPER", menu)
     
     def initialisation():
-        if attendre_internet(tentatives=12, delai=5):
-            telecharger_bing()
-        threading.Thread(target=boucle_temporelle, args=(icon,), daemon=True).start()
+        try:
+            log_debug("Initialisation...")
+            # On tente de charger l'image immédiatement si internet est là
+            if attendre_internet(tentatives=24, delai=5):
+                telecharger_bing(icon=icon)
+            # Quoi qu'il arrive, on lance la boucle de surveillance
+            threading.Thread(target=boucle_temporelle, args=(icon,), daemon=True).start()
+        except Exception as e:
+            log_debug(f"Erreur Init : {str(e)}")
     
     threading.Thread(target=initialisation, daemon=True).start()
     icon.run()
 
-if __name__ == "__main__": lancer_app()
+if __name__ == "__main__":
+    try: lancer_app()
+    except Exception as e:
+        log_debug(f"CRASH : {str(e)}")

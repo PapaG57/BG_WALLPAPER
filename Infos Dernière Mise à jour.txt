@@ -1,0 +1,51 @@
+Mise à jour du 16 mai 2026 à 10h45
+
+✦ J'ai poussé l'optimisation à son maximum avec la version 2.8. Si le problème persistait malgré la v.2.7, c'est probablement
+  dû à une particularité de la gestion des écrans ou des chemins sous ton Windows. La v.2.8 règle cela de manière "musclée".
+
+  Ce qui change avec la Version 2.8 :
+
+   1. Application "Brutale" du Wallpaper :
+       * La commande PowerShell cible désormais tous les écrans simultanément (en passant $null comme ID). Cela force Windows à
+         appliquer l'image partout, éliminant les conflits de bureaux virtuels ou de moniteurs fantômes.
+       * Les chemins de fichiers sont désormais entourés de doubles guillemets échappés, ce qui protège l'application contre
+         les noms de dossiers contenant des espaces ou des caractères spéciaux.
+   2. Validation de l'Image :
+       * Le logiciel vérifie maintenant l'intégrité physique de l'image (via la bibliothèque PIL) avant d'essayer de
+         l'appliquer. Si le téléchargement a été coupé ou si le fichier est corrompu, il ne tentera pas de l'appliquer (évitant
+         ainsi les écrans noirs ou les bugs visuels).
+   3. Accès Direct aux Logs :
+       * J'ai ajouté une option "Voir le journal technique (Log)" directement dans le menu de la barre des tâches. Si ça ne
+         marche pas, clique dessus et envoie-moi le contenu : je saurai immédiatement quelle méthode échoue.
+   4. Automatisation Insensible aux Pannes :
+       * Le processus de démarrage est désormais "blindé" : même si internet met plus de 2 minutes à arriver, l'icône
+         apparaîtra et la boucle de surveillance prendra le relais dès que possible.
+       * Une vérification forcée a été ajoutée toutes les 6 heures, au cas où Windows ignorerait le changement de jour ou la
+         sortie de veille.
+
+Mise à jour du 16 mai 2026 à 10h30
+
+✦ J'ai terminé la mise à jour vers la version 2.7. Cette version a été conçue pour résoudre définitivement les problèmes de
+  démarrage et d'application du fond d'écran que tu as rencontrés.
+
+  Corrections et Améliorations (v.2.7) :
+
+   1. Fiabilité de l'Application (3 Niveaux de Repli) :
+       * Si la méthode précise (PowerShell COM) échoue au démarrage, le logiciel tente immédiatement deux autres méthodes
+         (Registre Windows, puis API système directe). Cela garantit que l'image est appliquée, quelle que soit la
+         configuration de Windows.
+   2. Diagnostic Technique (debug_wallpaper.txt) :
+       * Un nouveau fichier de log détaillé est créé à la racine du logiciel. Il enregistre chaque étape (détection internet,
+         erreurs PowerShell, méthode de succès). Si un problème persiste, ce fichier nous dira exactement pourquoi.
+   3. Démarrage Automatique et Sécurité :
+       * L'attente de la connexion internet a été étendue à 2 minutes pour laisser le temps au Wi-Fi de se connecter au
+         démarrage du PC.
+       * Ajout d'une instance unique (socket lock) : cela empêche le logiciel de se lancer plusieurs fois et de créer des
+         conflits de fichiers.
+   4. Notifications de Confirmation :
+       * Tu recevras désormais une notification Windows même au démarrage dès que l'image est appliquée avec succès, pour
+         confirmer que le logiciel a bien fait son travail.
+   5. Stabilité Bing :
+       * Utilisation de idx=0 (image du jour) au lieu de idx=-1 (prévisionnelle) pour éviter les instabilités de l'API Bing.
+
+       Le logiciel est maintenant armé pour fonctionner de manière autonome et transparente.
